@@ -1,0 +1,117 @@
+#define BUZZER_PIN 23
+#define BUTTON_PIN 27
+//group 34
+// ตารางความถี่ Octave 6
+float notes[] = {1047, 1109, 1175, 1245, 1319, 1397, 1480, 1568, 1661, 1760, 1865, 1976};
+// Index:        0     1     2     3     4     5     6     7     8     9    10    11
+// Note:         C     C#    D     Eb    E     F     F#    G     G#    A    Bb    B
+
+// --- เพลง Hold On Tight - aespa ---
+// ใช้เลข -1 แทนการหยุดเสียง
+int melody[] = {
+
+  9, -1, 4, 5, 7, -1, 5, 4, 
+  2, -1, 2, 5, 9, -1, 7, 5,
+  
+  
+  4, -1, 5, 7, 9, -1, 5, 2, 
+  2, -1, -1, -1, 
+
+
+  9, -1, 4, 5, 7, -1, 5, 4, 
+  2, -1, 2, 5, 9, -1, 7, 5,
+  
+ 
+  4, -1, 5, 7, 9, -1, 5, 2, 
+  2, -1, 0, 0, 
+  
+
+  9, 0, 2, 0, -1, -1
+};
+
+int melodyLength = sizeof(melody) / sizeof(melody[0]);
+
+// ระดับความเร็ว 5 ระดับ 
+volatile int speedLevel = 2; 
+int tempoValues[] = {400, 300, 200, 150, 100}; 
+
+
+volatile bool speedChanged = false;
+volatile int currentNote = 0;
+hw_timer_t *timer = NULL;
+volatile bool buzzerState = false;
+
+// --- I/O Interrupt: เปลี่ยนความเร็ว ---
+void IRAM_ATTR changeSpeed() {
+    static unsigned long lastInterruptTime = 0;
+    unsigned long interruptTime = millis();
+    
+    // Debounce 250ms
+    if (interruptTime - lastInterruptTime > 250) { 
+        if (digitalRead(BUTTON_PIN) == LOW) { 
+            speedLevel = (speedLevel + 1) % 5;
+            speedChanged = true;
+            lastInterruptTime = interruptTime;
+        }
+    }
+}
+
+// --- Timer Interrupt ---
+void IRAM_ATTR onTimer() {
+    buzzerState = !buzzerState;
+    digitalWrite(BUZZER_PIN, buzzerState);
+}
+
+void setFrequency(float freq) {
+    if (freq <= 0) {
+        timerStop(timer);
+        digitalWrite(BUZZER_PIN, LOW);
+        return;
+    }
+    uint32_t alarmValue = 1000000 / (freq * 2);
+    timerAlarm(timer, alarmValue, true, 0); 
+    timerStart(timer);
+}
+
+void setup() {
+    Serial.begin(9600);
+    pinMode(BUZZER_PIN, OUTPUT);
+    pinMode(BUTTON_PIN, INPUT_PULLUP);
+    attachInterrupt(digitalPinToInterrupt(BUTTON_PIN), changeSpeed, FALLING);
+
+    timer = timerBegin(1000000); 
+    timerAttachInterrupt(timer, &onTimer);
+
+    Serial.println("System Ready: Playing Hold On Tight (Long Ver.)");
+}
+
+void loop() {
+    // ไว้ดูความเร็ว
+    if (speedChanged) {
+        speedChanged = false;
+        Serial.print("Speed Level: ");
+        Serial.print(speedLevel);
+        Serial.print(" (Delay: ");
+        Serial.print(tempoValues[speedLevel]);
+        Serial.println(" ms)");
+    }
+
+    // เล่นเพลง
+    static unsigned long lastNoteTime = 0;
+    int currentTempo = tempoValues[speedLevel];
+
+    if (millis() - lastNoteTime > currentTempo) {
+        lastNoteTime = millis();
+        
+        int noteIndex = melody[currentNote];
+        
+        // ถ้าเจอ -1 ให้เงียบ, ถ้าเจอ 0-11 ให้เล่นโน้ต
+        if (noteIndex == -1) {
+            setFrequency(0); 
+        } else if (noteIndex >= 0 && noteIndex < 12) {
+            setFrequency(notes[noteIndex]);
+        }
+
+        currentNote = (currentNote + 1) % melodyLength;
+    }
+}
